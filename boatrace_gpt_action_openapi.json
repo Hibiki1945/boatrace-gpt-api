@@ -1,0 +1,157 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "BOAT RACE Official Scraper Action",
+    "description": "BOAT RACE公式の出走表、直前情報、3連単オッズ、レース場データを取得し、24場攻略情報と統合して返します。",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "https://YOUR-DOMAIN.example.com",
+      "description": "公開HTTPS URLに差し替えてください"
+    }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "operationId": "healthCheck",
+        "summary": "APIの稼働確認",
+        "responses": {
+          "200": {
+            "description": "稼働中",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "service": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/boatrace/race-data": {
+      "get": {
+        "operationId": "getBoatraceRaceData",
+        "summary": "BOAT RACE公式情報と場別攻略情報を取得する",
+        "description": "予想時はinclude_result=false、レース後検証時のみinclude_result=trueにしてください。",
+        "parameters": [
+          {
+            "name": "date",
+            "in": "query",
+            "required": true,
+            "description": "開催日。YYYYMMDDまたはYYYY-MM-DD。",
+            "schema": {
+              "type": "string",
+              "examples": [
+                "20260619"
+              ]
+            }
+          },
+          {
+            "name": "place",
+            "in": "query",
+            "required": true,
+            "description": "ボートレース場名または場コード。例: 戸田 / 02。",
+            "schema": {
+              "type": "string",
+              "examples": [
+                "戸田"
+              ]
+            }
+          },
+          {
+            "name": "race",
+            "in": "query",
+            "required": true,
+            "description": "レース番号。1から12。",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 12,
+              "examples": [
+                12
+              ]
+            }
+          },
+          {
+            "name": "include_result",
+            "in": "query",
+            "required": false,
+            "description": "レース後検証時のみtrue。予想時はfalse。",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "スクレイピング済みレースデータ",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "データ種別": {
+                      "type": "string"
+                    },
+                    "作成時刻": {
+                      "type": "string"
+                    },
+                    "レース識別": {
+                      "type": "object"
+                    },
+                    "公式取得情報": {
+                      "type": "object"
+                    },
+                    "場別攻略情報": {
+                      "type": "object"
+                    },
+                    "テンプレート反映メモ": {
+                      "type": "object"
+                    },
+                    "APIメタ": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "入力エラー"
+          },
+          "401": {
+            "description": "APIキー認証エラー"
+          },
+          "500": {
+            "description": "サーバー内部エラー"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "ApiKeyAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-API-Key"
+      }
+    }
+  },
+  "security": [
+    {
+      "ApiKeyAuth": []
+    }
+  ]
+}
