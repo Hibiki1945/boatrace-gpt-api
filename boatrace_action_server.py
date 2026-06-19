@@ -83,6 +83,13 @@ class BoatraceActionHandler(BaseHTTPRequestHandler):
                 self.send_json({"ok": True, "service": "boatrace-action-server"})
                 return
 
+            if parsed.path == "/privacy":
+                self.send_text(
+                    "このAPIは、ユーザーが指定した競艇レース情報を取得するためにBOAT RACE公式ページへアクセスします。"
+                    "入力された開催日、場名、レース番号は処理目的のみに使用し、このサーバーは個人情報を保存しません。"
+                )
+                return
+
             if not self.authorized():
                 self.send_json({"error": "unauthorized"}, HTTPStatus.UNAUTHORIZED)
                 return
@@ -119,6 +126,14 @@ class BoatraceActionHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def send_text(self, text: str, status: HTTPStatus = HTTPStatus.OK) -> None:
+        body = text.encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
 

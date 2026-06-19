@@ -7,8 +7,8 @@
   },
   "servers": [
     {
-      "url": "https://YOUR-DOMAIN.example.com",
-      "description": "公開HTTPS URLに差し替えてください"
+      "url": "https://boatrace-gpt-api.onrender.com",
+      "description": "Renderで公開した競艇予想API"
     }
   ],
   "paths": {
