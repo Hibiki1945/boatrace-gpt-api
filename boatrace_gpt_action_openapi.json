@@ -138,6 +138,170 @@
           }
         }
       }
+    },
+    "/keiba/race-data": {
+      "get": {
+        "operationId": "getKeibaRaceSourceData",
+        "summary": "JRA公式情報とnetkeiba馬柱を補助取得する",
+        "description": "JRA公式URLは必須です。netkeibaはユーザー指定の馬柱URLのみ補助取得します。予想時はinclude_result=falseにしてください。",
+        "parameters": [
+          {
+            "name": "jra_url",
+            "in": "query",
+            "required": true,
+            "description": "JRA公式の出馬表・オッズ・馬場情報等のHTTPS URL。",
+            "schema": {
+              "type": "string",
+              "format": "uri"
+            }
+          },
+          {
+            "name": "netkeiba_url",
+            "in": "query",
+            "required": false,
+            "description": "補助確認するnetkeibaの馬柱または競走馬ページHTTPS URL。",
+            "schema": {
+              "type": "string",
+              "format": "uri"
+            }
+          },
+          {
+            "name": "include_result",
+            "in": "query",
+            "required": false,
+            "description": "レース後検証時のみtrue。予想時はfalse。",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "JRA公式を主情報とするソース取得結果",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "URLまたは入力エラー"
+          },
+          "401": {
+            "description": "APIキー認証エラー"
+          }
+        }
+      }
+    },
+    "/keiba/evaluate": {
+      "post": {
+        "operationId": "evaluateKeibaRace",
+        "summary": "競馬予想エンジンで全馬を評価する",
+        "description": "事前に確認・整理したレース情報と出走馬データを渡し、テンプレートv1.8と学習ログを使って採点します。",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "レース情報",
+                  "出走馬"
+                ],
+                "properties": {
+                  "レース情報": {
+                    "type": "object",
+                    "required": [
+                      "レース名",
+                      "開催日",
+                      "開催場",
+                      "距離"
+                    ],
+                    "properties": {
+                      "レース名": {
+                        "type": "string"
+                      },
+                      "開催日": {
+                        "type": "string",
+                        "examples": [
+                          "2026-06-21"
+                        ]
+                      },
+                      "開催場": {
+                        "type": "string"
+                      },
+                      "距離": {
+                        "type": "string",
+                        "examples": [
+                          "芝1600m"
+                        ]
+                      }
+                    }
+                  },
+                  "出走馬": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "馬番",
+                        "馬名"
+                      ],
+                      "properties": {
+                        "馬番": {
+                          "type": "integer"
+                        },
+                        "馬名": {
+                          "type": "string"
+                        },
+                        "能力評価": {
+                          "type": "number"
+                        },
+                        "再現性評価": {
+                          "type": "number"
+                        },
+                        "距離適性": {
+                          "type": "number"
+                        },
+                        "開催場適性": {
+                          "type": "number"
+                        },
+                        "展開評価": {
+                          "type": "number"
+                        },
+                        "期待値評価": {
+                          "type": "number"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "全馬評価、分類、購入判断、推奨三連複・ワイド候補",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "入力データエラー"
+          },
+          "401": {
+            "description": "APIキー認証エラー"
+          }
+        }
+      }
     }
   },
   "components": {
