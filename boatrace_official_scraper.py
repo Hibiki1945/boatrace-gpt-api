@@ -59,6 +59,9 @@ from urllib.request import Request, urlopen
 
 コード場名 = {v: k for k, v in 場コード.items()}
 
+
+DEFAULT_PRIORITY_PATH = Path(__file__).resolve().with_name("boatrace_venue_priority.json")
+
 公式ページ種別 = {
     "出走表": "racelist",
     "直前情報": "beforeinfo",
@@ -272,6 +275,38 @@ def 攻略プロンプト解析(path: Path) -> dict[str, Any]:
     return result
 
 
+def 場優先度読み込み(path: Path | None, place_name: str) -> dict[str, Any]:
+    """構造化した場優先度を読み、未設定でも予想処理を止めない。"""
+    if path is None or not path.exists():
+        return {
+            "場名": place_name,
+            "取得状態": "未設定",
+            "基本購入判断": "判定不可",
+            "注意事項": ["場優先度設定が未読込のため、購入判断は保守的に行う"],
+        }
+
+    try:
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return {
+            "場名": place_name,
+            "取得状態": "読込失敗",
+            "基本購入判断": "判定不可",
+            "注意事項": [f"場優先度設定の読込に失敗: {exc}"],
+        }
+
+    places = data.get("競艇場別優先度", {})
+    priority = places.get(place_name)
+    if not isinstance(priority, dict):
+        return {
+            "場名": place_name,
+            "取得状態": "未設定",
+            "基本購入判断": "判定不可",
+            "注意事項": ["この場の場優先度が未設定のため、NO BET寄りに扱う"],
+        }
+    return {"取得状態": "設定済み", **priority}
+
+
 @dataclass
 class 取得ページ:
     種別: str
@@ -336,6 +371,10 @@ def 予想用JSON作成(args: argparse.Namespace) -> dict[str, Any]:
         all_prompt = 攻略プロンプト解析(prompt_path)
         prompt_data = all_prompt.get(place_name, {})
 
+    priority_arg = getattr(args, "priority", None)
+    priority_path = Path(priority_arg) if priority_arg else DEFAULT_PRIORITY_PATH
+    venue_priority = 場優先度読み込み(priority_path, place_name)
+
     return {
         "データ種別": "競艇予想用スクレイピング結果",
         "作成時刻": utc_now_iso(),
@@ -348,6 +387,7 @@ def 予想用JSON作成(args: argparse.Namespace) -> dict[str, Any]:
         },
         "公式取得情報": official,
         "場別攻略情報": prompt_data,
+        "場優先度": venue_priority,
         "テンプレート反映メモ": {
             "優先反映先": [
                 "ウェブ参照ルール",
@@ -374,6 +414,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--place", required=True, help="場名または場コード。例: 戸田 / 02")
     parser.add_argument("--race", required=True, type=int, choices=range(1, 13), help="レース番号 1-12")
     parser.add_argument("--prompt", help="全24場ごとの攻略情報プロンプト.txt のパス")
+    parser.add_argument(
+        "--priority",
+        default=str(DEFAULT_PRIORITY_PATH),
+        help="boatrace_venue_priority.json のパス",
+    )
     parser.add_argument("--include-result", action="store_true", help="検証用に結果ページも取得する")
     parser.add_argument("--out", help="出力JSONパス。未指定ならスクリプトと同じフォルダに保存")
     args = parser.parse_args(argv)

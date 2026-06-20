@@ -31,6 +31,7 @@ import boatrace_official_scraper as scraper
 
 
 DEFAULT_PROMPT_PATH = str(Path(__file__).resolve().with_name("boatrace_place_prompt.txt"))
+DEFAULT_PRIORITY_PATH = str(Path(__file__).resolve().with_name("boatrace_venue_priority.json"))
 
 
 def json_bytes(data: Any) -> bytes:
@@ -44,12 +45,17 @@ def first_param(params: dict[str, list[str]], name: str, default: str | None = N
     return values[0]
 
 
-def race_data_from_params(params: dict[str, list[str]], default_prompt: str | None) -> dict[str, Any]:
+def race_data_from_params(
+    params: dict[str, list[str]],
+    default_prompt: str | None,
+    default_priority: str | None,
+) -> dict[str, Any]:
     date = first_param(params, "date")
     place = first_param(params, "place")
     race = first_param(params, "race")
     include_result = first_param(params, "include_result", "false")
     prompt = first_param(params, "prompt", default_prompt)
+    priority = first_param(params, "priority", default_priority)
 
     if not date or not place or not race:
         raise ValueError("date, place, race は必須です")
@@ -59,6 +65,7 @@ def race_data_from_params(params: dict[str, list[str]], default_prompt: str | No
         place=place,
         race=int(race),
         prompt=prompt if prompt and Path(prompt).exists() else None,
+        priority=priority if priority and Path(priority).exists() else None,
         include_result=str(include_result).lower() in {"1", "true", "yes", "on"},
         out=None,
     )
@@ -67,6 +74,7 @@ def race_data_from_params(params: dict[str, list[str]], default_prompt: str | No
         "用途": "GPT Actions完全実行用",
         "結果取得": args.include_result,
         "攻略プロンプト使用": bool(args.prompt),
+        "場優先度ルール使用": bool(args.priority),
     }
     return data
 
@@ -95,7 +103,11 @@ class BoatraceActionHandler(BaseHTTPRequestHandler):
                 return
 
             if parsed.path == "/boatrace/race-data":
-                data = race_data_from_params(params, self.server.default_prompt)  # type: ignore[attr-defined]
+                data = race_data_from_params(  # type: ignore[attr-defined]
+                    params,
+                    self.server.default_prompt,
+                    self.server.default_priority,
+                )
                 self.send_json(data)
                 return
 
@@ -149,10 +161,12 @@ def main() -> int:
     parser.add_argument("--host", default=os.environ.get("HOST", "127.0.0.1"))
     parser.add_argument("--port", type=int, default=int(os.environ.get("PORT", "8787")))
     parser.add_argument("--prompt", default=os.environ.get("BOATRACE_PROMPT_PATH", DEFAULT_PROMPT_PATH))
+    parser.add_argument("--priority", default=os.environ.get("BOATRACE_PRIORITY_PATH", DEFAULT_PRIORITY_PATH))
     args = parser.parse_args()
 
     server = ThreadingHTTPServer((args.host, args.port), BoatraceActionHandler)
     server.default_prompt = args.prompt  # type: ignore[attr-defined]
+    server.default_priority = args.priority  # type: ignore[attr-defined]
     print(f"Serving on http://{args.host}:{args.port}")
     print("Set BOATRACE_ACTION_API_KEY to require X-API-Key authentication.")
     server.serve_forever()
