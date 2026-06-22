@@ -206,12 +206,15 @@ def build_payload(venue: str, wind: str, pasted: dict[str, str], racer_category:
         if motor := motors.get(boat):
             row["motor_ren2"], row["motor_ren3"] = motor["ren2"], motor["ren3"]
         if racers:
-            row["racer_win1"] = racers["win1"].get(racer_category, [None] * 6)[boat - 1]
-            row["racer_ren2"] = racers["ren2"].get(racer_category, [None] * 6)[boat - 1]
-            row["racer_ren3"] = racers["ren3"].get(racer_category, [None] * 6)[boat - 1]
-            row["racer_6m_win1"] = racers["win1"].get(comparison_category, [None] * 6)[boat - 1]
-            row["racer_6m_ren2"] = racers["ren2"].get(comparison_category, [None] * 6)[boat - 1]
-            row["racer_6m_ren3"] = racers["ren3"].get(comparison_category, [None] * 6)[boat - 1]
+            # パーサーが区分を見つけられない場合はNoneを返すため、6艇分の未評価配列へ安全にフォールバックする。
+            win1 = racers["win1"].get(racer_category) or [None] * 6
+            ren2 = racers["ren2"].get(racer_category) or [None] * 6
+            ren3 = racers["ren3"].get(racer_category) or [None] * 6
+            six_win1 = racers["win1"].get(comparison_category) or [None] * 6
+            six_ren2 = racers["ren2"].get(comparison_category) or [None] * 6
+            six_ren3 = racers["ren3"].get(comparison_category) or [None] * 6
+            row["racer_win1"], row["racer_ren2"], row["racer_ren3"] = win1[boat - 1], ren2[boat - 1], ren3[boat - 1]
+            row["racer_6m_win1"], row["racer_6m_ren2"], row["racer_6m_ren3"] = six_win1[boat - 1], six_ren2[boat - 1], six_ren3[boat - 1]
         row["f_hold"] = boat in (f_hold_boats or [])
         if st.get("今期"):
             f_st = st.get("F持")
