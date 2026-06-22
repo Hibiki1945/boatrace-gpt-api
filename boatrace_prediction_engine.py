@@ -94,13 +94,28 @@ def parse_tenji(text: str) -> dict[str, Any]:
     read("調整重量", True)
     tilt = read("チルト", True)
     if not tenji or not isshu or not mawari or any(v is None for v in tenji + isshu + mawari):
-        raise ValueError("展示・周回・周り足の6艇分を読み取れませんでした")
+        # BOATCAST形式: 周回タイムをアンカーに、前後の数値を拾う。
+        tokens = [float(value) for value in re.findall(r"-?(?:\d+\.\d+|\.\d+|\d+)", text)]
+        anchors = [index for index, value in enumerate(tokens) if 30 <= value <= 45][:6]
+        if len(anchors) != 6:
+            raise ValueError("展示・周回・周り足の6艇分を読み取れませんでした")
+        boats: list[dict[str, Any]] = []
+        allowed_tilts = {-0.5, 0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0}
+        for index, anchor in enumerate(anchors):
+            lap = tokens[anchor]
+            around = tokens[anchor + 1] if anchor + 1 < len(tokens) and 4.5 <= tokens[anchor + 1] <= 8.5 else None
+            exhibition = tokens[anchor + 3] if anchor + 3 < len(tokens) and 5.5 <= tokens[anchor + 3] <= 7.8 else None
+            tilt_value = next((tokens[pos] for pos in range(anchor - 1, max(-1, anchor - 5), -1) if tokens[pos] in allowed_tilts), None)
+            if exhibition is None or around is None:
+                raise ValueError("BOATCAST形式から展示・周回・周り足を読み取れませんでした")
+            boats.append({"boat": index + 1, "course": index + 1, "tenji": exhibition, "isshu": lap, "mawari": around, "weight": None, "tilt": tilt_value})
+        return {"boats": boats, "解析形式": "BOATCAST"}
     return {"boats": [{
         "boat": i + 1,
         "course": int(course[i]) if course and course[i] in range(1, 7) else i + 1,
         "tenji": tenji[i], "isshu": isshu[i], "mawari": mawari[i],
         "weight": weight[i] if weight else None, "tilt": tilt[i] if tilt else None,
-    } for i in range(6)]}
+    } for i in range(6)], "解析形式": "表形式"}
 
 
 def parse_st(text: str) -> dict[str, list[float | None] | None]:
@@ -187,12 +202,14 @@ def parse_kimari(text: str) -> dict[str, Any]:
     if sim:
         body = sim.group("body")
         def rates(label: str, count: int) -> list[float] | None:
-            match = re.search(re.escape(label) + r"(?P<body>[\s\S]*?)(?=逃がし|出目|$)", body)
+            match = re.search(re.escape(label) + r"(?P<body>[\s\S]*?)(?=逃がし|出目|決まり手|$)", body)
             values = re.findall(r"\d+\.\d+", match.group("body") if match else "")
             return [float(v) for v in values[:count]] if len(values) >= count else None
         head = rates("逃がし2着率", 7)
+        third = rates("逃がし3着率", 5)
+        deme = rates("出目確率", 5)
         if head:
-            output["nige_sim"] = {"win1": head[0], "nige_rate": head[1], "second": head[2:]}
+            output["nige_sim"] = {"win1": head[0], "nige_rate": head[1], "second": head[2:], "third": third, "deme": deme}
     return output
 
 
@@ -326,7 +343,7 @@ def evaluate(payload: dict[str, Any]) -> dict[str, Any]:
             "艇": boat, "進入": course, "展示差合計": round(sum_score, 3), "場別基準1着率": base,
             "風補正": round(wind_adj, 1), "艇別補正": {"1着": w1, "2着": w2, "3着": w3, "3連対": top3},
             "計算1着指標": round(final1, 1), "選手補正後": {"1着率": None if racer_1 is None else round(racer_1, 1), "2連対率": None if racer_2 is None else round(racer_2, 1), "3連対率": None if racer_3 is None else round(racer_3, 1)},
-            "注意": warnings, "根拠": [],
+            "注意": warnings, "根拠": [], "補足": [],
         })
     motor_values = [_number(row["motor_ren2"], "motor_ren2") for row in normalized if row.get("motor_ren2") is not None]
     racer_values = [row["選手補正後"]["1着率"] for row in rows if row["選手補正後"]["1着率"] is not None]
@@ -393,6 +410,10 @@ def evaluate(payload: dict[str, Any]) -> dict[str, Any]:
                 row["根拠"].append(f"1着率低めでも3連対率{r3:.1f}%で3着残しの目")
         if r2_delta is not None and r2_delta >= 3 and criteria["展示タイム"]:
             row["根拠"].append(f"2連対率{racer2:.1f}%上位で相手筆頭級")
+        if r1_delta is not None and r3_delta is not None and r1_delta >= 3 and r3_delta <= -2:
+            row["補足"].append(f"1着率上位だが3連対率{r3:.1f}%は平凡、買うなら頭")
+        if r2_delta is not None and r1_delta is not None and r2_delta >= 3 and r1_delta < 2:
+            row["根拠"].append("2連対率上位で2着軸候補")
         if r3_delta is not None and r3_delta <= -5:
             row["注意"].append("3連対率が低く紐でも過信禁物")
         # Claude版と同じく、総合AI評価は4項目を主軸にし、場別コース率は同印内の参考値に留める。
@@ -409,7 +430,8 @@ def evaluate(payload: dict[str, Any]) -> dict[str, Any]:
             w1 = one["艇別補正"]["1着"]
             second = [{"艇": boat, "元値": value, "補正後": round(value + by_boat[boat]["艇別補正"]["2着"], 1)} for boat, value in enumerate(nige.get("second", []), start=2) if boat in by_boat]
             third = [{"艇": boat, "元値": value, "補正後": round(value + by_boat[boat]["艇別補正"]["3着"], 1)} for boat, value in enumerate(nige.get("third", []), start=2) if boat in by_boat]
-            nige_adjusted = {"1着": nige.get("win1"), "逃げ": nige.get("nige_rate"), "逃げ補正後": round(nige.get("nige_rate", 0) + w1, 1), "2着": second, "3着": third}
+            deme = [{"艇": boat, "元値": value} for boat, value in enumerate(nige.get("deme", []), start=2) if boat in by_boat]
+            nige_adjusted = {"1着": nige.get("win1"), "逃げ": nige.get("nige_rate"), "逃げ補正後": round(nige.get("nige_rate", 0) + w1, 1), "2着": second, "3着": third, "出目": deme}
             for item in second:
                 if item["元値"] >= 30:
                     by_boat[item["艇"]]["根拠"].append(f"逃がし2着{item['元値']:.1f}%（1-{item['艇']}本線級）")
@@ -432,9 +454,24 @@ def evaluate(payload: dict[str, Any]) -> dict[str, Any]:
                 if not isinstance(attacks, list) or defense is None:
                     continue
                 attacker_index, attacker_value = max(enumerate(attacks, start=2), key=lambda pair: -1 if pair[1] is None else pair[1])
+                attacker = by_boat.get(attacker_index)
+                attacker_good = bool(attacker and (attacker["総合判定"]["内訳"]["展示タイム"] or attacker["総合判定"]["内訳"]["枠別成績"]))
                 if attacker_value is not None and defense >= threshold[0] and attacker_value >= threshold[1]:
                     one["注意"].append(f"{defend_name}{defense}%×{attacker_index}号艇の{attack_name}{attacker_value}%で要警戒")
                     by_boat[attacker_index]["根拠"].append(f"{attack_name}{attacker_value}%で1号艇を脅かす")
+                elif attacker_value is not None and defense >= threshold[0] * 2 / 3 and attacker_value >= threshold[1] * 0.8:
+                    one["注意"].append(f"{defend_name}{defense}%・{attacker_index}号艇の{attack_name}{attacker_value}%に注意")
+                    by_boat[attacker_index]["根拠"].append(f"{attack_name}{attacker_value}%")
+                elif attacker_value is not None and attacker_good and attacker_value >= threshold[1] * 0.6:
+                    one["注意"].append(f"{attacker_index}号艇が気配上位で{attack_name}{attacker_value}%、数字以上に警戒")
+                    by_boat[attacker_index]["根拠"].append(f"気配良く{attack_name}一撃も")
+                else:
+                    good_attackers = [row for row in rows if row["艇"] >= 2 and (row["総合判定"]["内訳"]["展示タイム"] or row["総合判定"]["内訳"]["枠別成績"])]
+                    if good_attackers:
+                        good = max(good_attackers, key=lambda row: row["総合判定"]["良材料数"])
+                        value = attacks[good["艇"] - 2]
+                        if value is not None and defense <= threshold[0] * 0.5 and value <= threshold[1] * 0.5:
+                            one["補足"].append(f"{good['艇']}号艇は気配上位だが{attack_name}{value}%・{defend_name}{defense}%と低く、{attack_name}決着は薄めか")
     for row in rows:
         row["評価コメント"] = _boat_comment(row)
     return {
