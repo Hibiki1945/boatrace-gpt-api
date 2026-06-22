@@ -128,14 +128,16 @@ def parse_motor(text: str) -> dict[int, dict[str, float | None]]:
 
 
 def _six_rates(body: str) -> list[float | None] | None:
-    values = re.findall(r"\d+\.\d+|[-−ー]", body)
+    # コピー元の出走数（例: (27)）を誤って率として読まないため、%付き数値だけを優先する。
+    values = re.findall(r"(?:\d+(?:\.\d+)?\s*%|[-−ー])", body)
     if len(values) < 6:
         return None
-    return [None if x in {"-", "−", "ー"} else float(x) for x in values[:6]]
+    return [None if x in {"-", "−", "ー"} else float(x.rstrip("% ")) for x in values[:6]]
 
 
 def parse_racer(text: str) -> dict[str, dict[str, list[float | None] | None]]:
     """枠別成績の1着率・2連対率・3連対率を区分別に返す。"""
+    text = re.sub(r"直近\s*([136])ヶ月", r"直近\1ヶ月", text)
     sections: dict[str, str] = {}
     for metric, next_metric in (("win1", "2連対率"), ("ren2", "3連対率"), ("ren3", None)):
         label = {"win1": "1着率", "ren2": "2連対率", "ren3": "3連対率"}[metric]
@@ -145,8 +147,8 @@ def parse_racer(text: str) -> dict[str, dict[str, list[float | None] | None]]:
     result: dict[str, dict[str, list[float | None] | None]] = {key: {} for key in sections}
     for metric, section in sections.items():
         for category in RACER_CATEGORIES:
-            label = "SG" if category == "SG/G1" else re.sub(r"(?<=直近)([136])ヶ月", r"\\s*\1ヶ月", category)
-            match = re.search(label + r"(?P<body>[\s\S]*?)(?=(?:今期|直近\s*[136]ヶ月|当地|一般戦|SG|女子戦)|$)", section)
+            label = "SG" if category == "SG/G1" else re.escape(category)
+            match = re.search(label + r"(?P<body>[\s\S]*?)(?=(?:今期|直近[136]ヶ月|当地|一般戦|SG|女子戦)|$)", section)
             result[metric][category] = _six_rates(match.group("body")) if match else None
     if not any(value for metrics in result.values() for value in metrics.values()):
         raise ValueError("枠別成績を読み取れませんでした")
@@ -198,9 +200,22 @@ def build_payload(venue: str, wind: str, pasted: dict[str, str], racer_category:
     """手動貼り付け群を evaluate() 用の6艇データへ変換する。"""
     parsed = parse_tenji(pasted["tenji"])
     boats = parsed["boats"]
-    motors = parse_motor(pasted["motor"]) if pasted.get("motor") else {}
-    racers = parse_racer(pasted["racer"]) if pasted.get("racer") else {}
-    st = parse_st(pasted["st"]) if pasted.get("st") else {}
+    parser_warnings: list[str] = []
+    try:
+        motors = parse_motor(pasted["motor"]) if pasted.get("motor") else {}
+    except ValueError as exc:
+        motors = {}
+        parser_warnings.append(f"モーター解析を省略: {exc}")
+    try:
+        racers = parse_racer(pasted["racer"]) if pasted.get("racer") else {}
+    except ValueError as exc:
+        racers = {}
+        parser_warnings.append(f"枠別成績解析を省略: {exc}")
+    try:
+        st = parse_st(pasted["st"]) if pasted.get("st") else {}
+    except ValueError as exc:
+        st = {}
+        parser_warnings.append(f"平均ST解析を省略: {exc}")
     for row in boats:
         boat = row["boat"]
         if motor := motors.get(boat):
@@ -219,7 +234,7 @@ def build_payload(venue: str, wind: str, pasted: dict[str, str], racer_category:
         if st.get("今期"):
             f_st = st.get("F持")
             row["avg_st"] = f_st[boat - 1] if row["f_hold"] and f_st and f_st[boat - 1] is not None else st["今期"][boat - 1]
-    return {"venue": venue, "wind": wind, "boats": boats, "kimari": parse_kimari(pasted["kimari"]) if pasted.get("kimari") else {}, "kimari_period": kimari_period}
+    return {"venue": venue, "wind": wind, "boats": boats, "kimari": parse_kimari(pasted["kimari"]) if pasted.get("kimari") else {}, "kimari_period": kimari_period, "解析警告": parser_warnings}
 
 
 def _boat_comment(row: dict[str, Any]) -> str:
@@ -427,5 +442,5 @@ def evaluate(payload: dict[str, Any]) -> dict[str, Any]:
         "順位": rows,
         "逃げシミュレーション": nige_adjusted,
         "レース評価コメント": _race_comment(rows, nige_adjusted),
-        "注意": ["これは数値評価であり購入推奨ではありません。場優先度・オッズ・進入・直前情報でGO/NO BETを最終判定してください。"],
+        "注意": [*payload.get("解析警告", []), "これは数値評価であり購入推奨ではありません。場優先度・オッズ・進入・直前情報でGO/NO BETを最終判定してください。"],
     }
