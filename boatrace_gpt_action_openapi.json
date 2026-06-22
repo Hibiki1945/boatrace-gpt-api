@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "BOAT RACE Official Scraper Action",
-    "description": "BOAT RACE公式の出走表、直前情報、3連単オッズ、レース場データを取得し、24場攻略情報と統合して返します。",
-    "version": "1.0.0"
+    "description": "BOAT RACE公式の出走表、直前情報、3連単オッズ、レース場データを取得し、24場攻略情報と場優先度ルールを統合して返します。",
+    "version": "1.2.0"
   },
   "servers": [
     {
@@ -82,6 +82,7 @@
                     "レース識別": { "type": "object", "properties": {} },
                     "公式取得情報": { "type": "object", "properties": {} },
                     "場別攻略情報": { "type": "object", "properties": {} },
+                    "場優先度": { "type": "object", "description": "場ランク、購入判断、日次予算上限比率、購入追加条件、注意事項", "properties": {} },
                     "テンプレート反映メモ": { "type": "object", "properties": {} },
                     "APIメタ": { "type": "object", "properties": {} }
                   }
@@ -92,6 +93,66 @@
           "400": { "description": "入力エラー" },
           "401": { "description": "APIキー認証エラー" },
           "500": { "description": "サーバー内部エラー" }
+        }
+      }
+    },
+    "/boatrace/prediction": {
+      "post": {
+        "operationId": "evaluateManualPastedData",
+        "summary": "手動貼り付け競艇データを解析・評価する",
+        "description": "外部サイトへアクセスせず、ユーザーが手動で貼り付けた展示、平均ST、モーター、選手成績、決まり手だけを解析します。",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["venue", "wind", "pasted"],
+                "properties": {
+                  "venue": {"type": "string", "description": "ボートレース場名。例: 大村"},
+                  "wind": {"type": "string", "description": "風区分。例: 向かい風1m"},
+                  "f_hold_boats": {
+                    "type": "array",
+                    "description": "F持ちの艇番。例: [2]",
+                    "items": {"type": "integer", "minimum": 1, "maximum": 6}
+                  },
+                  "pasted": {
+                    "type": "object",
+                    "required": ["tenji"],
+                    "properties": {
+                      "tenji": {"type": "string", "description": "展示情報のコピー全文"},
+                      "st": {"type": "string", "description": "平均ST表のコピー全文"},
+                      "motor": {"type": "string", "description": "モーター表のコピー全文"},
+                      "racer": {"type": "string", "description": "枠別選手成績のコピー全文"},
+                      "kimari": {"type": "string", "description": "決まり手・逃げシミュレーションのコピー全文"}
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "解析・評価結果",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "評価器": {"type": "string"},
+                    "順位": {"type": "array", "description": "総合評価順の艇別結果"},
+                    "逃げシミュレーション": {"type": "object"},
+                    "レース評価コメント": {"type": "string"},
+                    "注意": {"type": "array", "items": {"type": "string"}}
+                  }
+                }
+              }
+            }
+          },
+          "400": {"description": "貼り付けデータまたは入力値のエラー"},
+          "401": {"description": "APIキー認証エラー"},
+          "500": {"description": "サーバー内部エラー"}
         }
       }
     }

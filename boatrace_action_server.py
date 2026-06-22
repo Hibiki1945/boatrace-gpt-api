@@ -28,6 +28,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 import boatrace_official_scraper as scraper
+import boatrace_prediction_engine as prediction_engine
 
 
 DEFAULT_PROMPT_PATH = str(Path(__file__).resolve().with_name("boatrace_place_prompt.txt"))
@@ -79,6 +80,35 @@ def race_data_from_params(
     return data
 
 
+def prediction_from_body(body: dict[str, Any]) -> dict[str, Any]:
+    venue = body.get("venue")
+    wind = body.get("wind")
+    pasted = body.get("pasted")
+
+    if not isinstance(venue, str) or not venue:
+        raise ValueError("venue は必須です")
+
+    if not isinstance(wind, str) or not wind:
+        raise ValueError("wind は必須です")
+
+    if not isinstance(pasted, dict):
+        raise ValueError("pasted は必須です")
+
+    f_hold_boats = body.get("f_hold_boats", [])
+
+    if not isinstance(f_hold_boats, list):
+        raise ValueError("f_hold_boats は配列で指定してください")
+
+    payload = prediction_engine.build_payload(
+        venue=venue,
+        wind=wind,
+        pasted=pasted,
+        f_hold_boats=[int(boat) for boat in f_hold_boats],
+    )
+
+    return prediction_engine.evaluate(payload)
+
+
 class BoatraceActionHandler(BaseHTTPRequestHandler):
     server_version = "PredictionActionServer/1.1"
 
@@ -126,7 +156,32 @@ class BoatraceActionHandler(BaseHTTPRequestHandler):
             self.send_json({"error": "internal error", "detail": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)
 
     def do_POST(self) -> None:
-        self.send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
+        parsed = urlparse(self.path)
+        try:
+            if parsed.path != "/boatrace/prediction":
+                self.send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
+                return
+
+            if not self.authorized():
+                self.send_json({"error": "unauthorized"}, HTTPStatus.UNAUTHORIZED)
+                return
+
+            content_length = int(self.headers.get("Content-Length", "0"))
+            if not 0 < content_length <= 1_000_000:
+                raise ValueError("JSON本文が必要です（上限1MB）")
+
+            try:
+                body = json.loads(self.rfile.read(content_length).decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise ValueError("JSON本文を正しく指定してください") from exc
+            if not isinstance(body, dict):
+                raise ValueError("JSON本文はオブジェクトで指定してください")
+
+            self.send_json(prediction_from_body(body))
+        except ValueError as exc:
+            self.send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+        except Exception as exc:  # noqa: BLE001
+            self.send_json({"error": "internal error", "detail": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)
 
     def authorized(self) -> bool:
         expected = os.environ.get("BOATRACE_ACTION_API_KEY")
@@ -171,7 +226,5 @@ def main() -> int:
     print("Set BOATRACE_ACTION_API_KEY to require X-API-Key authentication.")
     server.serve_forever()
     return 0
-
-
 if __name__ == "__main__":
     raise SystemExit(main())
